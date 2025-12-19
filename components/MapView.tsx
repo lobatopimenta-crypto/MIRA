@@ -34,6 +34,7 @@ const MapView: React.FC<MapViewProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const clusterGroupRef = useRef<any>(null);
   const previewMarkerRef = useRef<any>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   
   const onMapClickRef = useRef(onMapClick);
 
@@ -41,14 +42,18 @@ const MapView: React.FC<MapViewProps> = ({
     onMapClickRef.current = onMapClick;
   }, [onMapClick]);
 
+  // Inicialização do Mapa
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    // Inicializa o mapa
     mapRef.current = L.map(containerRef.current, {
-      zoomControl: false
+      zoomControl: false,
+      fadeAnimation: true,
+      markerZoomAnimation: true
     }).setView(center || [-3.7172, -38.5283], 11);
 
-    // Zoom no canto inferior direito, acima do seletor de camadas se necessário
+    // Zoom no canto inferior direito
     L.control.zoom({ position: 'bottomright' }).addTo(mapRef.current);
 
     const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -66,7 +71,6 @@ const MapView: React.FC<MapViewProps> = ({
       "🛰️ Visão Satélite": satelliteLayer
     };
 
-    // Controle de camadas movido para 'bottomright' e 'collapsed: true' para menos poluição
     L.control.layers(baseMaps, {}, { 
       position: 'bottomright', 
       collapsed: true 
@@ -86,7 +90,24 @@ const MapView: React.FC<MapViewProps> = ({
       }
     });
 
+    // CORREÇÃO CRÍTICA: ResizeObserver para garantir que o mapa preencha o contêiner
+    // Isso resolve o problema de carregar pela metade após o login ou toggle de sidebar
+    resizeObserverRef.current = new ResizeObserver(() => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    });
+    resizeObserverRef.current.observe(containerRef.current);
+
+    // Forçar um recalcular inicial após um pequeno delay para garantir que o layout estabilizou
+    setTimeout(() => {
+      if (mapRef.current) mapRef.current.invalidateSize();
+    }, 250);
+
     return () => {
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+      }
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -94,6 +115,7 @@ const MapView: React.FC<MapViewProps> = ({
     };
   }, []);
 
+  // Estilo do cursor em modo manual
   useEffect(() => {
     if (!containerRef.current) return;
     if (isManualMode) {
@@ -105,6 +127,7 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [isManualMode]);
 
+  // Marcador de Preview (Modo Manual)
   useEffect(() => {
     if (!mapRef.current) return;
     if (previewMarkerRef.current) {
@@ -123,6 +146,7 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [previewLocation]);
 
+  // Atualização dos Marcadores de Mídia
   useEffect(() => {
     if (!mapRef.current || !clusterGroupRef.current) return;
     clusterGroupRef.current.clearLayers();
@@ -154,9 +178,13 @@ const MapView: React.FC<MapViewProps> = ({
       const popupContent = document.createElement('div');
       popupContent.className = 'w-64 overflow-hidden rounded-2xl';
       popupContent.innerHTML = `
-        <div class="bg-slate-900 text-white px-4 py-2.5 flex flex-col">
-          <span class="text-[8px] font-black uppercase tracking-[0.3em] text-blue-400">${m.type === 'video' ? 'SENSOR DE VÍDEO' : 'SENSOR DE IMAGEM'}</span>
-          <span class="text-xs font-black">${m.name}</span>
+        <div class="bg-slate-900 text-white px-4 py-3 flex flex-col">
+          <div class="flex justify-between items-start mb-1">
+            <span class="text-[8px] font-black uppercase tracking-[0.3em] text-blue-400">${m.type === 'video' ? 'SENSOR DE VÍDEO' : 'SENSOR DE IMAGEM'}</span>
+            <span class="text-[7px] font-black text-white/40 uppercase tracking-widest">${m.timestamp?.split(' ')[0] || ''}</span>
+          </div>
+          <span class="text-xs font-black leading-tight">${m.name}</span>
+          <span class="text-[8px] font-mono text-white/50 mt-1 uppercase tracking-tighter">REGISTRO: ${m.timestamp || 'SEM DATA'}</span>
         </div>
         <div class="p-3 bg-white">
           <div class="relative rounded-xl overflow-hidden mb-3 shadow-md group cursor-pointer" id="popup-img-${m.id}">
@@ -188,6 +216,7 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [mediaList, selectedId]);
 
+  // Centralização ao selecionar via lista
   useEffect(() => {
     if (mapRef.current && center) {
       mapRef.current.setView(center, 18, { animate: true });
@@ -241,7 +270,7 @@ const MapView: React.FC<MapViewProps> = ({
         .leaflet-control-zoom {
             border: none !important;
             margin-right: 12px !important;
-            margin-bottom: 70px !important; /* Acima do seletor de camadas */
+            margin-bottom: 70px !important;
         }
         .leaflet-control-zoom-in, .leaflet-control-zoom-out {
             border-radius: 8px !important;
@@ -252,7 +281,7 @@ const MapView: React.FC<MapViewProps> = ({
             margin-bottom: 4px !important;
         }
       `}</style>
-      <div ref={containerRef} className="w-full h-full z-10 transition-all duration-300" />
+      <div ref={containerRef} className="w-full h-full z-10 transition-all duration-300 bg-slate-200" />
     </>
   );
 };

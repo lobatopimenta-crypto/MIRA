@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import MapView from './components/MapView';
 import HistoryView from './components/HistoryView';
 import ReportsView from './components/ReportsView';
+import LoginView from './components/LoginView';
 import { DroneMedia } from './types';
 import { extractGpsData } from './services/exifService';
 
@@ -34,6 +35,7 @@ const TacticalLogo = ({ size = "12", pulsing = false }: { size?: string, pulsing
 );
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('map');
   const [mediaList, setMediaList] = useState<DroneMedia[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<DroneMedia | null>(null);
@@ -166,8 +168,6 @@ const App: React.FC = () => {
   const imagesCount = useMemo(() => mediaList.filter(m => m.type === 'image').length, [mediaList]);
   const videosCount = useMemo(() => mediaList.filter(m => m.type === 'video').length, [mediaList]);
 
-  // CORREÇÃO: Não usamos mais toggle para evitar fechar ao clicar em "Inspecionar" 
-  // que dispara o mesmo evento que clicar no marcador
   const handleMarkerSelection = useCallback((m: DroneMedia) => {
     setSelectedMedia(m);
   }, []);
@@ -222,8 +222,6 @@ const App: React.FC = () => {
         setIsFetchingPendingAddress(false);
       }
     } else {
-      // FECHA A ABA DE ANÁLISE AO CLICAR NO MAPA (FUNDO)
-      // Adicionamos uma pequena verificação para evitar conflito com popups
       setSelectedMedia(null);
     }
   }, [isManualLocationMode, selectedMedia]);
@@ -351,10 +349,25 @@ const App: React.FC = () => {
     });
   };
 
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setSelectedMedia(null);
+    setActiveTab('map');
+  };
+
+  if (!isAuthenticated) {
+    return <LoginView 
+              onLogin={() => setIsAuthenticated(true)} 
+              totalFiles={mediaList.length} 
+              imageCount={imagesCount} 
+              videoCount={videosCount} 
+            />;
+  }
+
   return (
     <div className={`flex flex-col h-screen bg-slate-50 overflow-hidden font-sans transition-opacity duration-700 ${isUploading ? 'pointer-events-none opacity-90' : 'opacity-100'}`}>
       <header className="h-16 bg-slate-900 text-white flex items-center justify-between px-6 shadow-2xl z-50 shrink-0 border-b border-slate-800">
-        <div className="flex items-center space-x-4 w-1/3">
+        <div className="flex items-center space-x-4 w-1/4">
           <button disabled={isUploading} onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-800 rounded-lg transition-all text-blue-400 disabled:opacity-30">
             <svg className={`w-6 h-6 transition-transform duration-500 ${isSidebarOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
           </button>
@@ -376,17 +389,26 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center justify-end space-x-4 w-1/3">
-          <nav className="hidden lg:flex items-center space-x-1 h-full text-[9px] font-black text-slate-400 uppercase tracking-widest">
+        <div className="flex items-center justify-end space-x-4 w-1/4">
+          <nav className="hidden xl:flex items-center space-x-1 h-full text-[9px] font-black text-slate-400 uppercase tracking-widest mr-2">
             <button disabled={isUploading} onClick={() => setActiveTab('map')} className={`px-4 py-2 rounded-lg transition-all duration-300 ${activeTab === 'map' ? 'text-white bg-blue-600 shadow-lg' : 'hover:text-white hover:bg-slate-800'}`}>Mapa</button>
             <button disabled={isUploading} onClick={() => setActiveTab('history')} className={`px-4 py-2 rounded-lg transition-all duration-300 ${activeTab === 'history' ? 'text-white bg-blue-600 shadow-lg' : 'hover:text-white hover:bg-slate-800'}`}>📋 Histórico</button>
             <button disabled={isUploading} onClick={() => setActiveTab('reports')} className={`px-4 py-2 rounded-lg transition-all duration-300 ${activeTab === 'reports' ? 'text-white bg-blue-600 shadow-lg' : 'hover:text-white hover:bg-slate-800'}`}>📊 Relatórios</button>
           </nav>
           <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" />
           <input type="file" ref={folderInputRef} onChange={handleFileUpload} {...({ webkitdirectory: "", directory: "" } as any)} multiple className="hidden" />
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 items-center">
             <button disabled={isUploading} onClick={() => { setIsFolderUpload(true); setShowUploadModal(true); }} className="bg-slate-800 text-white px-3 py-2 rounded-xl border border-slate-700 hover:bg-slate-700 transition-all disabled:opacity-30"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg></button>
             <button disabled={isUploading} onClick={() => { setIsFolderUpload(false); setShowUploadModal(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase shadow-lg shadow-blue-900/40 hover:bg-blue-500 transition-all disabled:opacity-30">Arquivos</button>
+            <div className="w-px h-6 bg-slate-700 mx-2"></div>
+            <button 
+              onClick={handleLogout}
+              className="group flex items-center space-x-2 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-xl transition-all border border-red-600/30 font-black text-[9px] uppercase tracking-widest"
+              title="Encerrar Sessão"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+              <span className="hidden lg:inline">Sair</span>
+            </button>
           </div>
         </div>
       </header>
@@ -407,23 +429,72 @@ const App: React.FC = () => {
         )}
 
         {showUploadModal && (
-          <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2.5rem] p-10 max-sm w-full shadow-2xl border border-blue-100">
-              <h3 className="text-xl font-black text-slate-900 uppercase mb-2 text-center">Arquivos</h3>
-              <p className="text-xs text-slate-400 mb-8 font-medium uppercase tracking-widest text-left">Defina o tipo de Arquivo</p>
-              <div className="grid grid-cols-1 w-full gap-3">
-                <button onClick={() => handleUploadCategoryChoice('image')} className="w-full py-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl font-black text-xs uppercase transition-all border border-blue-100 flex items-center justify-center">
-                  <span className="mr-3 text-lg">📷</span> Foto
+          <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+            <div className="bg-white rounded-[3rem] p-12 max-w-xl w-full shadow-[0_32px_64px_rgba(0,0,0,0.5)] border border-white/20 relative overflow-hidden">
+              {/* Decorative elements */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
+              
+              <div className="text-center mb-10">
+                <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter mb-2">Protocolo de Importação</h3>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Selecione a categoria de ativos para processamento GIS</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                <button 
+                  onClick={() => handleUploadCategoryChoice('image')} 
+                  className="group w-full p-6 bg-slate-50 hover:bg-blue-600 border border-slate-200 hover:border-blue-400 rounded-3xl transition-all duration-300 flex items-center text-left"
+                >
+                  <div className="w-14 h-14 bg-white group-hover:bg-blue-500 rounded-2xl shadow-sm flex items-center justify-center mr-6 transition-colors">
+                    <svg className="w-7 h-7 text-blue-600 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-900 group-hover:text-white text-sm uppercase tracking-widest">Imagens Aéreas</h4>
+                    <p className="text-[9px] text-slate-400 group-hover:text-blue-100 font-bold uppercase tracking-tighter mt-1">Extração automática de metadados GPS e EXIF</p>
+                  </div>
                 </button>
-                <button onClick={() => handleUploadCategoryChoice('video')} className="w-full py-4 bg-red-50 hover:bg-red-100 text-red-600 rounded-2xl font-black text-xs uppercase transition-all border border-red-100 flex items-center justify-center">
-                  <span className="mr-3 text-lg">📹</span> Vídeo
+
+                <button 
+                  onClick={() => handleUploadCategoryChoice('video')} 
+                  className="group w-full p-6 bg-slate-50 hover:bg-red-600 border border-slate-200 hover:border-red-400 rounded-3xl transition-all duration-300 flex items-center text-left"
+                >
+                  <div className="w-14 h-14 bg-white group-hover:bg-red-500 rounded-2xl shadow-sm flex items-center justify-center mr-6 transition-colors">
+                    <svg className="w-7 h-7 text-red-600 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v8a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-900 group-hover:text-white text-sm uppercase tracking-widest">Sensores de Vídeo</h4>
+                    <p className="text-[9px] text-slate-400 group-hover:text-red-100 font-bold uppercase tracking-tighter mt-1">Mapeamento dinâmico e rastreio de telemetria</p>
+                  </div>
                 </button>
-                <button onClick={() => handleUploadCategoryChoice('both')} className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase transition-all border border-slate-200 flex items-center justify-center">
-                  <span className="mr-3 text-lg">📂</span> Geral
+
+                <button 
+                  onClick={() => handleUploadCategoryChoice('both')} 
+                  className="group w-full p-6 bg-slate-50 hover:bg-slate-900 border border-slate-200 hover:border-slate-800 rounded-3xl transition-all duration-300 flex items-center text-left"
+                >
+                  <div className="w-14 h-14 bg-white group-hover:bg-slate-800 rounded-2xl shadow-sm flex items-center justify-center mr-6 transition-colors">
+                    <svg className="w-7 h-7 text-slate-600 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-900 group-hover:text-white text-sm uppercase tracking-widest">Lote de Ativos (Misto)</h4>
+                    <p className="text-[9px] text-slate-400 group-hover:text-slate-400 font-bold uppercase tracking-tighter mt-1">Sincronização geral de pastas e múltiplos formatos</p>
+                  </div>
                 </button>
               </div>
-              <div className="flex justify-center mt-8">
-                <button onClick={() => setShowUploadModal(false)} className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] hover:text-slate-500 transition-colors">Cancelar</button>
+
+              <div className="flex justify-center mt-10">
+                <button 
+                  onClick={() => setShowUploadModal(false)} 
+                  className="text-[9px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-[0.3em] transition-colors flex items-center"
+                >
+                  <svg className="w-3 h-3 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                  Cancelar Operação
+                </button>
               </div>
             </div>
           </div>
@@ -487,6 +558,15 @@ const App: React.FC = () => {
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300"><span className="text-white text-[9px] font-black uppercase tracking-widest bg-blue-600 px-6 py-2 rounded-full">Expandir Visão</span></div>
                     </div>
                     <div className="space-y-4 mb-6">
+                      <div className="p-5 bg-slate-900/5 border border-slate-200 rounded-[1.5rem] shadow-sm">
+                        <h4 className="text-[9px] font-black text-slate-400 mb-1.5 uppercase tracking-widest flex justify-between items-center">
+                          Registro Temporal
+                          <span className="text-[8px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-black">DATA DE CRIAÇÃO</span>
+                        </h4>
+                        <div className="text-[12px] font-black text-slate-800 font-mono tracking-tighter">
+                          {selectedMedia.timestamp || 'NÃO CATALOGADO'}
+                        </div>
+                      </div>
                       <div className="p-5 bg-slate-50 border border-slate-100 rounded-[1.5rem] shadow-sm">
                         <h4 className="text-[9px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">Endereço</h4>
                         <div className={`text-[10px] font-bold leading-relaxed ${isSearchingAddress ? 'text-blue-500 animate-pulse' : 'text-slate-800'}`}>
