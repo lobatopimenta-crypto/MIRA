@@ -1,0 +1,7 @@
+{
+  "name": "DroneView Map SaaS",
+  "description": "A GIS-focused SaaS prototype for drone pilots to upload media, extract EXIF GPS data, and visualize flight paths and photo locations on an interactive map with AI-powered terrain analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
