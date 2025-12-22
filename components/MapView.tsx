@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { DroneMedia } from '../types';
 
 // @ts-ignore
@@ -8,281 +8,163 @@ const L = window.L;
 interface MapViewProps {
   mediaList: DroneMedia[];
   onMarkerClick: (media: DroneMedia) => void;
-  onDelete: (id: string) => void;
+  onDelete: (media: DroneMedia) => void;
   onFullScreen: (media: DroneMedia) => void;
+  onAnalyze: (media: DroneMedia) => void;
   center?: [number, number];
   onDownload: (media: DroneMedia) => void;
   onMapClick?: (lat: number, lng: number) => void;
   selectedId?: string;
-  previewLocation?: {lat: number, lng: number} | null;
-  isManualMode?: boolean;
 }
+
+type MapLayer = 'satellite' | 'standard';
 
 const MapView: React.FC<MapViewProps> = ({ 
   mediaList, 
   onMarkerClick, 
-  onDelete, 
-  onFullScreen, 
+  onDelete,
+  onFullScreen,
+  onAnalyze,
+  onDownload,
   center, 
-  onDownload, 
-  onMapClick, 
-  selectedId,
-  previewLocation,
-  isManualMode = false
+  selectedId
 }) => {
   const mapRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const clusterGroupRef = useRef<any>(null);
-  const previewMarkerRef = useRef<any>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const [mapType, setMapType] = useState<MapLayer>('satellite');
+  const [mapReady, setMapReady] = useState(false);
   
-  const onMapClickRef = useRef(onMapClick);
+  const satelliteLayerRef = useRef<any>(null);
+  const standardLayerRef = useRef<any>(null);
 
   useEffect(() => {
-    onMapClickRef.current = onMapClick;
-  }, [onMapClick]);
+    if (!containerRef.current || mapRef.current || !L) return;
 
-  // Inicialização do Mapa
-  useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
-
-    // Inicializa o mapa
     mapRef.current = L.map(containerRef.current, {
       zoomControl: false,
-      fadeAnimation: true,
-      markerZoomAnimation: true
-    }).setView(center || [-3.7172, -38.5283], 11);
+      attributionControl: false
+    }).setView([-3.7172, -38.5283], 12);
 
-    // Zoom no canto inferior direito
     L.control.zoom({ position: 'bottomright' }).addTo(mapRef.current);
 
-    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
-    });
+    satelliteLayerRef.current = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+    standardLayerRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
 
-    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Esri'
-    });
+    satelliteLayerRef.current.addTo(mapRef.current);
 
-    satelliteLayer.addTo(mapRef.current); 
+    if (L.markerClusterGroup) {
+        clusterGroupRef.current = L.markerClusterGroup({
+            showCoverageOnHover: false,
+            maxClusterRadius: 45,
+            disableClusteringAtZoom: 17
+        });
+        mapRef.current.addLayer(clusterGroupRef.current);
+    }
 
-    const baseMaps = {
-      "🗺️ Mapa Urbano": streetLayer,
-      "🛰️ Visão Satélite": satelliteLayer
-    };
+    setMapReady(true);
 
-    L.control.layers(baseMaps, {}, { 
-      position: 'bottomright', 
-      collapsed: true 
-    }).addTo(mapRef.current);
+    setTimeout(() => { if (mapRef.current) mapRef.current.invalidateSize(); }, 500);
 
-    clusterGroupRef.current = L.markerClusterGroup({
-        showCoverageOnHover: false,
-        maxClusterRadius: 40,
-        spiderfyOnMaxZoom: true,
-        disableClusteringAtZoom: 18
-    });
-    mapRef.current.addLayer(clusterGroupRef.current);
-
-    mapRef.current.on('click', (e: any) => {
-      if (onMapClickRef.current) {
-        onMapClickRef.current(e.latlng.lat, e.latlng.lng);
-      }
-    });
-
-    // CORREÇÃO CRÍTICA: ResizeObserver para garantir que o mapa preencha o contêiner
-    // Isso resolve o problema de carregar pela metade após o login ou toggle de sidebar
-    resizeObserverRef.current = new ResizeObserver(() => {
-      if (mapRef.current) {
-        mapRef.current.invalidateSize();
-      }
-    });
-    resizeObserverRef.current.observe(containerRef.current);
-
-    // Forçar um recalcular inicial após um pequeno delay para garantir que o layout estabilizou
-    setTimeout(() => {
-      if (mapRef.current) mapRef.current.invalidateSize();
-    }, 250);
+    const observer = new ResizeObserver(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
+    observer.observe(containerRef.current);
 
     return () => {
-      if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect();
-      }
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      observer.disconnect();
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
     };
   }, []);
 
-  // Estilo do cursor em modo manual
-  useEffect(() => {
-    if (!containerRef.current) return;
-    if (isManualMode) {
-      containerRef.current.style.cursor = 'crosshair';
-      containerRef.current.classList.add('map-targeting-mode');
-    } else {
-      containerRef.current.style.cursor = '';
-      containerRef.current.classList.remove('map-targeting-mode');
-    }
-  }, [isManualMode]);
-
-  // Marcador de Preview (Modo Manual)
-  useEffect(() => {
-    if (!mapRef.current) return;
-    if (previewMarkerRef.current) {
-      mapRef.current.removeLayer(previewMarkerRef.current);
-      previewMarkerRef.current = null;
-    }
-    if (previewLocation) {
-      const previewIcon = L.divIcon({
-        className: 'preview-marker-icon',
-        html: `<div style="background-color: #f59e0b; width: 24px; height: 24px; border: 4px solid white; border-radius: 50%; box-shadow: 0 0 20px rgba(245, 158, 11, 0.6); animation: pulse 1.5s infinite;"></div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
-      });
-      previewMarkerRef.current = L.marker([previewLocation.lat, previewLocation.lng], { icon: previewIcon }).addTo(mapRef.current);
-      mapRef.current.setView([previewLocation.lat, previewLocation.lng], 17, { animate: true });
-    }
-  }, [previewLocation]);
-
-  // Atualização dos Marcadores de Mídia
-  useEffect(() => {
-    if (!mapRef.current || !clusterGroupRef.current) return;
-    clusterGroupRef.current.clearLayers();
-
-    const geoMedia = mediaList.filter(m => m.hasGps && m.latitude && m.longitude);
-    geoMedia.forEach(m => {
-      const isSelected = m.id === selectedId;
-      const markerColor = m.type === 'video' ? '#ef4444' : '#2563eb';
-      
-      const iconHtml = isSelected 
-        ? `<div style="background-color: ${markerColor}; width: 26px; height: 26px; border: 5px solid white; border-radius: 50%; box-shadow: 0 0 20px ${markerColor}, 0 0 10px white; transform: scale(1.15);"></div>`
-        : `<div style="background-color: ${markerColor}; width: 16px; height: 16px; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.3);"></div>`;
-
-      const customIcon = L.divIcon({
-        className: `custom-div-icon ${isSelected ? 'active-mira-marker' : ''}`,
-        html: iconHtml,
-        iconSize: isSelected ? [26, 26] : [16, 16],
-        iconAnchor: isSelected ? [13, 13] : [8, 8]
-      });
-
-      const marker = L.marker([m.latitude!, m.longitude!], { 
-        icon: customIcon,
-        zIndexOffset: isSelected ? 1000 : 0
-      });
-      
-      const tooltipContent = `<div class="p-1 font-black text-[10px] uppercase">${m.name}</div>`;
-      marker.bindTooltip(tooltipContent, { direction: 'top', offset: [0, -12], className: 'mira-marker-tooltip' });
-
-      const popupContent = document.createElement('div');
-      popupContent.className = 'w-64 overflow-hidden rounded-2xl';
-      popupContent.innerHTML = `
-        <div class="bg-slate-900 text-white px-4 py-3 flex flex-col">
-          <div class="flex justify-between items-start mb-1">
-            <span class="text-[8px] font-black uppercase tracking-[0.3em] text-blue-400">${m.type === 'video' ? 'SENSOR DE VÍDEO' : 'SENSOR DE IMAGEM'}</span>
-            <span class="text-[7px] font-black text-white/40 uppercase tracking-widest">${m.timestamp?.split(' ')[0] || ''}</span>
-          </div>
-          <span class="text-xs font-black leading-tight">${m.name}</span>
-          <span class="text-[8px] font-mono text-white/50 mt-1 uppercase tracking-tighter">REGISTRO: ${m.timestamp || 'SEM DATA'}</span>
-        </div>
-        <div class="p-3 bg-white">
-          <div class="relative rounded-xl overflow-hidden mb-3 shadow-md group cursor-pointer" id="popup-img-${m.id}">
-             <img src="${m.previewUrl}" class="w-full h-32 object-cover" />
-             <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <span class="text-white text-[9px] font-black uppercase tracking-widest bg-blue-600 px-4 py-1.5 rounded-full">Ver tela cheia</span>
-             </div>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            <button class="inspect-btn w-full bg-slate-800 text-white text-[9px] py-2 rounded-lg font-black uppercase">Inspecionar</button>
-            <button class="download-btn w-full bg-slate-100 text-slate-600 text-[9px] py-2 rounded-lg font-black uppercase">Baixar</button>
-          </div>
-          <button class="delete-btn w-full mt-2 bg-red-50 text-red-500 text-[9px] py-2 rounded-lg font-black uppercase">Excluir</button>
-        </div>
-      `;
-      
-      popupContent.querySelector(`#popup-img-${m.id}`)?.addEventListener('click', () => onFullScreen(m));
-      popupContent.querySelector('.inspect-btn')?.addEventListener('click', () => onMarkerClick(m));
-      popupContent.querySelector('.download-btn')?.addEventListener('click', () => onDownload(m));
-      popupContent.querySelector('.delete-btn')?.addEventListener('click', () => onDelete(m.id));
-
-      marker.bindPopup(popupContent, { padding: [0, 0], minWidth: 256 });
-      clusterGroupRef.current.addLayer(marker);
-    });
-
-    if (geoMedia.length > 0 && !center && !previewLocation) {
-      const bounds = L.latLngBounds(geoMedia.map(m => [m.latitude!, m.longitude!]));
-      mapRef.current.fitBounds(bounds, { padding: [50, 50] });
-    }
-  }, [mediaList, selectedId]);
-
-  // Centralização ao selecionar via lista
   useEffect(() => {
     if (mapRef.current && center) {
-      mapRef.current.setView(center, 18, { animate: true });
+      mapRef.current.flyTo(center, 16, { duration: 1.5 });
     }
   }, [center]);
 
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    if (mapType === 'satellite') {
+      if (mapRef.current.hasLayer(standardLayerRef.current)) mapRef.current.removeLayer(standardLayerRef.current);
+      satelliteLayerRef.current.addTo(mapRef.current);
+    } else {
+      if (mapRef.current.hasLayer(satelliteLayerRef.current)) mapRef.current.removeLayer(satelliteLayerRef.current);
+      standardLayerRef.current.addTo(mapRef.current);
+    }
+  }, [mapType, mapReady]);
+
+  useEffect(() => {
+    if (!mapRef.current || !clusterGroupRef.current || !mapReady) return;
+    clusterGroupRef.current.clearLayers();
+
+    mediaList.filter(m => m.hasGps).forEach(m => {
+      const isSelected = m.id === selectedId;
+      const markerColor = m.type === 'video' ? '#ef4444' : '#3b82f6';
+      
+      const customIcon = L.divIcon({
+        className: `mira-custom-icon ${isSelected ? 'is-active' : ''}`,
+        html: `<div style="background-color: ${markerColor}; width: ${isSelected ? '28px' : '16px'}; height: ${isSelected ? '28px' : '16px'}; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 15px ${markerColor};"></div>`,
+        iconSize: isSelected ? [28, 28] : [16, 16],
+        iconAnchor: isSelected ? [14, 14] : [8, 8]
+      });
+
+      const marker = L.marker([m.latitude!, m.longitude!], { icon: customIcon });
+      
+      const popupContainer = document.createElement('div');
+      popupContainer.className = 'w-72 overflow-hidden rounded-2xl bg-slate-900 border border-white/10 shadow-2xl font-sans';
+      
+      const content = `
+        <div class="relative h-36 w-full cursor-pointer btn-fullscreen">
+           <img src="${m.previewUrl}" class="w-full h-full object-cover" />
+           <div class="absolute inset-0 bg-gradient-to-t from-slate-900 to-transparent"></div>
+           <div class="absolute bottom-3 left-3 right-3">
+              <p class="text-[7px] font-black text-blue-400 uppercase tracking-widest mb-0.5">${m.timestamp || 'Sem Data'}</p>
+              <p class="text-[10px] font-bold text-white truncate uppercase">${m.name}</p>
+           </div>
+           <div class="absolute top-2 right-2 bg-blue-600 text-white text-[6px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Ativo Online</div>
+        </div>
+        <div class="p-3 grid grid-cols-3 gap-2 bg-slate-900">
+           <button class="btn-analyze bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2.5 flex flex-col items-center justify-center transition-all active:scale-95">
+              <svg class="w-3.5 h-3.5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+              <span class="text-[7px] font-black uppercase tracking-tighter">Analisar</span>
+           </button>
+           <button class="btn-open bg-slate-800 hover:bg-slate-700 text-white rounded-xl py-2.5 flex flex-col items-center justify-center transition-all active:scale-95">
+              <svg class="w-3.5 h-3.5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <span class="text-[7px] font-black uppercase tracking-tighter">Ver</span>
+           </button>
+           <button class="btn-down bg-slate-800 hover:bg-slate-700 text-white rounded-xl py-2.5 flex flex-col items-center justify-center transition-all active:scale-95">
+              <svg class="w-3.5 h-3.5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              <span class="text-[7px] font-black uppercase tracking-tighter">Download</span>
+           </button>
+        </div>
+      `;
+      
+      popupContainer.innerHTML = content;
+      
+      popupContainer.querySelector('.btn-analyze')?.addEventListener('click', () => onAnalyze(m));
+      popupContainer.querySelector('.btn-open')?.addEventListener('click', () => onFullScreen(m));
+      popupContainer.querySelector('.btn-down')?.addEventListener('click', () => onDownload(m));
+      popupContainer.querySelector('.btn-fullscreen')?.addEventListener('click', () => onFullScreen(m));
+
+      marker.bindPopup(popupContainer, { maxWidth: 300, minWidth: 280, className: 'mira-tactical-popup' });
+      clusterGroupRef.current.addLayer(marker);
+    });
+  }, [mediaList, selectedId, mapReady, onAnalyze, onMarkerClick, onDownload, onFullScreen]);
+
   return (
-    <>
+    <div className="absolute inset-0 w-full h-full bg-slate-950">
+      <div ref={containerRef} className="w-full h-full z-10" />
+      <div className="absolute top-6 right-6 z-[40] bg-slate-900/90 backdrop-blur-xl p-2 rounded-2xl border border-white/10 shadow-2xl flex space-x-2">
+        <button onClick={() => setMapType('satellite')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${mapType === 'satellite' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-white/5'}`}>🛰️ Satélite</button>
+        <button onClick={() => setMapType('standard')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${mapType === 'standard' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-white/5'}`}>🗺️ Mapa</button>
+      </div>
       <style>{`
-        @keyframes pulse {
-          0% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.3); opacity: 0.7; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        .active-mira-marker {
-          z-index: 1000 !important;
-        }
-        .active-mira-marker div {
-          animation: mira-glow 2s infinite ease-in-out;
-        }
-        @keyframes mira-glow {
-          0% { box-shadow: 0 0 5px rgba(255,255,255,0.5); }
-          50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.8), 0 0 10px white; }
-          100% { box-shadow: 0 0 5px rgba(255,255,255,0.5); }
-        }
-        .map-targeting-mode {
-          filter: grayscale(0.2) contrast(1.1);
-        }
-        
-        .leaflet-control-layers {
-            border-radius: 12px !important;
-            border: 1px solid rgba(15, 23, 42, 0.2) !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            background: rgba(255,255,255,0.9) !important;
-            backdrop-filter: blur(4px);
-            margin-bottom: 20px !important;
-            margin-right: 12px !important;
-        }
-        .leaflet-control-layers-toggle {
-            width: 36px !important;
-            height: 36px !important;
-            background-size: 20px 20px !important;
-        }
-        .leaflet-control-layers-list span {
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #1e293b;
-        }
-        .leaflet-control-zoom {
-            border: none !important;
-            margin-right: 12px !important;
-            margin-bottom: 70px !important;
-        }
-        .leaflet-control-zoom-in, .leaflet-control-zoom-out {
-            border-radius: 8px !important;
-            background: rgba(255,255,255,0.9) !important;
-            backdrop-filter: blur(4px) !important;
-            color: #1e293b !important;
-            border: 1px solid rgba(15, 23, 42, 0.1) !important;
-            margin-bottom: 4px !important;
-        }
+        .leaflet-popup-content-wrapper { background: transparent; border-radius: 1rem; color: white; padding: 0; box-shadow: none; }
+        .leaflet-popup-content { margin: 0; width: 280px !important; }
+        .leaflet-popup-tip { display: none; }
+        .mira-custom-icon.is-active div { animation: marker-pulse 1.2s infinite; }
+        @keyframes marker-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }
       `}</style>
-      <div ref={containerRef} className="w-full h-full z-10 transition-all duration-300 bg-slate-200" />
-    </>
+    </div>
   );
 };
 

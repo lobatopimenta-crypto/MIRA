@@ -31,20 +31,72 @@ const extractImageGps = (file: File): Promise<{ lat: number | null; lng: number 
   });
 };
 
-/**
- * Tenta extrair GPS de vídeos procurando por padrões ISO 6709 no cabeçalho binário.
- * Muitos drones (DJI, GoPro) e smartphones salvam a localização em texto puro nos primeiros KB/MB.
- */
+export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
+      headers: {
+        'Accept-Language': 'pt-BR'
+      }
+    });
+    const data = await response.json();
+    if (data && data.address) {
+      const { road, house_number, suburb, city, town, village, state } = data.address;
+      
+      const rua = road || 'Logradouro não identificado';
+      const numero = house_number ? `, ${house_number}` : '';
+      const bairro = suburb ? `, ${suburb}` : '';
+      const cidade = city || town || village || '';
+      const estado = state ? ` - ${state}` : '';
+      
+      return `${rua}${numero}${bairro}, ${cidade}${estado}`.trim();
+    }
+    return '';
+  } catch (error) {
+    console.error("Erro na geocodificação reversa:", error);
+    return '';
+  }
+};
+
+export const geocodeAddress = async (address: string): Promise<{lat: number, lng: number} | null> => {
+  if (!address) return null;
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon)
+      };
+    }
+  } catch (e) {
+    console.error("Erro na geocodificação direta:", e);
+  }
+  return null;
+};
+
+export const searchAddress = async (query: string): Promise<string[]> => {
+  if (!query || query.length < 3) return [];
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1`, {
+      headers: {
+        'Accept-Language': 'pt-BR'
+      }
+    });
+    const data = await response.json();
+    return data.map((item: any) => item.display_name);
+  } catch (error) {
+    console.error("Erro na busca de endereço:", error);
+    return [];
+  }
+};
+
 const extractVideoGps = async (file: File): Promise<{ lat: number | null; lng: number | null; timestamp?: string }> => {
   try {
-    // Lemos os primeiros 512KB do vídeo (onde geralmente estão os metadados 'moov' ou 'udta')
     const blob = file.slice(0, 512 * 1024);
     const buffer = await blob.arrayBuffer();
     const decoder = new TextDecoder();
     const text = decoder.decode(buffer);
 
-    // Padrão ISO 6709: +45.1234-122.1234/ ou similares
-    // Exemplo DJI: [long : -46.123456] [lat : -23.123456] [rel_alt: 10.000]
     const djiLatMatch = text.match(/\[lat\s*:\s*(-?\d+\.\d+)\]/);
     const djiLngMatch = text.match(/\[long\s*:\s*(-?\d+\.\d+)\]/);
     
@@ -56,7 +108,6 @@ const extractVideoGps = async (file: File): Promise<{ lat: number | null; lng: n
       };
     }
 
-    // Procura por padrão decimal simples (muitas câmeras usam +DD.DDDD+DDD.DDDD)
     const isoMatch = text.match(/([+-]\d+\.\d+)([+-]\d+\.\d+)/);
     if (isoMatch) {
       return {
